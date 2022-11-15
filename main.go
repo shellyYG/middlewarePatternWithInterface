@@ -9,7 +9,7 @@ import (
 var key1 = "KEY1"
 var key2 = "KEY2"
 
-type Decider struct {
+type Webhook struct {
 	service map[string]Service
 }
 
@@ -27,22 +27,22 @@ func (s *Service) Serve(in string) {
 	fmt.Println("parsed result: ", result)
 }
 
-func (d *Decider) AddCustomer(name string, service Service) {
+func (w *Webhook) AddCustomer(name string, service Service) {
 	// Initiate map to avoid nil panic
-	if d.service == nil {
-		d.service = make(map[string]Service)
+	if w.service == nil {
+		w.service = make(map[string]Service)
 	}
-	d.service[name] = service
+	w.service[name] = service
 }
 
-func (d *Decider) Decide(next http.Handler) http.Handler {
+func (wh *Webhook) Decide(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Print("Start Deciding.")
 		var realTimeClient = "kun"
 		var ToFull = make(map[string]string)
 		ToFull["clientName"] = realTimeClient
 		for _, toAddress := range ToFull {
-			if service, ok := d.service[toAddress]; ok {
+			if service, ok := wh.service[toAddress]; ok {
 				service.Serve("Hi")
 			}
 		}
@@ -73,30 +73,47 @@ func final(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func (wh *Webhook) Init(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		//router := mux.NewRouter()
+		var newKunService = handlerConfig["kun"]
+		var newDHLService = handlerConfig["DHL"] // DHLParserConcreteType{}
+		wh.AddCustomer("kun", newKunService)
+		wh.AddCustomer("DHL", newDHLService)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+var handlerConfig = map[string]Service{
+	"kun": {
+		ClientName: "kun",
+		Parser:     &KunParserConcreteType{},
+	},
+	"DHL": {
+		ClientName: "DHL",
+		Parser:     &DHLParserConcreteType{},
+	},
+}
+
 func main() {
 	mux := http.NewServeMux()
-	var handlerConfig = map[string]Service{
-		"kun": {
-			ClientName: "kun",
-			Parser:     &KunParserConcreteType{},
-		},
-		"DHL": {
-			ClientName: "DHL",
-			Parser:     &DHLParserConcreteType{},
-		},
-	}
-	var newKunService = handlerConfig["kun"]
-	var newDHLService = handlerConfig["DHL"] // DHLParserConcreteType{}
-
-	var d Decider
-	d.AddCustomer("kun", newKunService)
-	d.AddCustomer("DHL", newDHLService)
-
 	finalHandler := http.HandlerFunc(final)
 
-	mux.Handle("/", d.Decide((finalHandler)))
+	var w Webhook
+
+	mux.Handle("/", w.Init(w.Decide(finalHandler)))
+
+	//var webhookA Webhook
+
+	//router.HandleFunc("/", webhookA)
 
 	log.Print("Listening on :3000...")
 	err := http.ListenAndServe(":3000", mux)
 	log.Fatal(err)
 }
+
+//func (f Webhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+//	finalHandler := http.HandlerFunc(final)
+//	Decide((finalHandler))
+//}
